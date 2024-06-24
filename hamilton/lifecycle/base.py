@@ -811,7 +811,7 @@ class LifecycleAdapterSet:
             {method: list(adapters) for method, adapters in async_methods.items()},
         )
 
-    def does_hook(self, hook_name: str, is_async: bool) -> bool:
+    def does_hook(self, hook_name: str, is_async: Optional[bool] = None) -> bool:
         """Whether or not a hook is implemented by any of the adapters in this group.
         If this hook is not registered, this will raise a ValueError.
 
@@ -819,21 +819,22 @@ class LifecycleAdapterSet:
         :param is_async: Whether you want the async version or not
         :return: True if this adapter set does this hook, False otherwise
         """
-        if is_async and hook_name not in REGISTERED_ASYNC_HOOKS:
+        either = is_async is None
+        if (is_async or either) and hook_name not in REGISTERED_ASYNC_HOOKS:
             raise ValueError(
                 f"Hook {hook_name} is not registered as an asynchronous lifecycle hook. "
                 f"Registered hooks are {REGISTERED_ASYNC_HOOKS}"
             )
-        if not is_async and hook_name not in REGISTERED_SYNC_HOOKS:
+        if ((not is_async) or either) and hook_name not in REGISTERED_SYNC_HOOKS:
             raise ValueError(
                 f"Hook {hook_name} is not registered as a synchronous lifecycle hook. "
                 f"Registered hooks are {REGISTERED_SYNC_HOOKS}"
             )
-        if not is_async:
-            return hook_name in self.sync_hooks
-        return hook_name in self.async_hooks
+        has_async = hook_name in self.async_hooks
+        has_sync = hook_name in self.sync_hooks
+        return (has_async or has_sync) if either else has_async if is_async else has_sync
 
-    def does_method(self, method_name: str, is_async: bool) -> bool:
+    def does_method(self, method_name: str, is_async: Optional[bool] = None) -> bool:
         """Whether a method is implemented by any of the adapters in this group.
         If this method is not registered, this will raise a ValueError.
 
@@ -841,19 +842,20 @@ class LifecycleAdapterSet:
         :param is_async: Whether you want the async version or not
         :return: True if this adapter set does this method, False otherwise
         """
-        if is_async and method_name not in REGISTERED_ASYNC_METHODS:
+        either = is_async is None
+        if (is_async or either) and method_name not in REGISTERED_ASYNC_METHODS:
             raise ValueError(
                 f"Method {method_name} is not registered as an asynchronous lifecycle method. "
                 f"Registered methods are {REGISTERED_ASYNC_METHODS}"
             )
-        if not is_async and method_name not in REGISTERED_SYNC_METHODS:
+        if ((not is_async) or either) and method_name not in REGISTERED_SYNC_METHODS:
             raise ValueError(
                 f"Method {method_name} is not registered as a synchronous lifecycle method. "
                 f"Registered methods are {REGISTERED_SYNC_METHODS}"
             )
-        if not is_async:
-            return method_name in self.sync_methods
-        return method_name in self.async_methods
+        has_async = method_name in self.async_methods
+        has_sync = method_name in self.sync_methods
+        return (has_async or has_sync) if either else has_async if is_async else has_sync
 
     def does_validation(self, validator_name: str) -> bool:
         """Whether a validator is implemented by any of the adapters in this group.
@@ -875,7 +877,7 @@ class LifecycleAdapterSet:
         :param hook_name: Name of the hooks to call
         :param kwargs: Keyword arguments to pass into the hook
         """
-        for adapter in self.sync_hooks[hook_name]:
+        for adapter in self.sync_hooks.get(hook_name, []):
             getattr(adapter, hook_name)(**kwargs)
 
     async def call_all_lifecycle_hooks_async(self, hook_name: str, **kwargs):
@@ -885,9 +887,13 @@ class LifecycleAdapterSet:
         :param kwargs: Keyword arguments to pass into the hook
         """
         futures = []
-        for adapter in self.async_hooks[hook_name]:
+        for adapter in self.async_hooks.get(hook_name, []):
             futures.append(getattr(adapter, hook_name)(**kwargs))
         await asyncio.gather(*futures)
+
+    async def call_all_lifecycle_hooks_sync_and_async(self, hook_name: str, **kwargs):
+        self.call_all_lifecycle_hooks_sync(hook_name, **kwargs)
+        await self.call_all_lifecycle_hooks_async(hook_name, **kwargs)
 
     def call_lifecycle_method_sync(self, method_name: str, **kwargs) -> Any:
         """Calls a lifecycle method in this group, by method name.

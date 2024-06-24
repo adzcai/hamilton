@@ -1,13 +1,40 @@
+from contextlib import asynccontextmanager
+
 import async_module
 import fastapi
+import hamilton_sdk.adapters
 
 from hamilton import base
 from hamilton.experimental import h_async
 
-app = fastapi.FastAPI()
-
 # can instantiate a driver once for the life of the app:
-dr = h_async.AsyncDriver({}, async_module, result_builder=base.DictResult())
+dr = None
+
+
+@asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    global dr
+
+    tracker_async = await hamilton_sdk.adapters.AsyncHamiltonTracker(
+        project_id=4,
+        username="elijah",
+        dag_name="async_tracker",
+    ).ainit()
+    # tracker_sync = hamilton_sdk.adapters.HamiltonTracker(
+    #     project_id=4,
+    #     username="elijah",
+    #     dag_name="sync_tracker",
+    # )
+    dr = await h_async.AsyncDriver(
+        {},
+        async_module,
+        result_builder=base.DictResult(),
+        adapters=[tracker_async],
+    ).ainit()
+    yield
+
+
+app = fastapi.FastAPI(lifespan=lifespan)
 
 
 @app.post("/execute")
